@@ -1,13 +1,17 @@
 import React, { useState } from 'react'
 import { toast } from 'react-hot-toast'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import {
   AlertCircle,
   Bot,
+  Copy,
   FileText,
   Loader2,
   Send,
   Sparkles,
   Square,
+  Trash2,
   User,
 } from 'lucide-react'
 
@@ -23,6 +27,7 @@ export default function RagChat() {
   const [question, setQuestion] = useState('')
   const [submittedQuestion, setSubmittedQuestion] = useState('')
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [showConfirmClear, setShowConfirmClear] = useState(false)
 
   const {
     status,
@@ -32,6 +37,7 @@ export default function RagChat() {
     responseTime,
     ask,
     stop,
+    reset,
   } = useRagStream()
 
   const isStreaming = status === 'streaming'
@@ -53,6 +59,7 @@ export default function RagChat() {
     setQuestion('')
     ask(trimmed)
   }
+
   const handleCopy = async () => {
     if (!hasAnswer) return
 
@@ -89,19 +96,54 @@ export default function RagChat() {
     URL.revokeObjectURL(url)
   }
 
+  const handleClearChat = () => {
+    reset()
+    setQuestion('')
+    setSubmittedQuestion('')
+    setValidationError(null)
+    setShowConfirmClear(false)
+    toast.success('Chat history cleared!')
+  }
+
+  const handleCopyCitation = async (excerpt: string) => {
+    try {
+      await navigator.clipboard.writeText(excerpt)
+      toast.success('Citation excerpt copied!')
+    } catch (error) {
+      toast.error('Failed to copy citation')
+    }
+  }
+
+  const renderMarkdown = (text: string) => {
+    const rawHtml = marked.parse(text) as string
+    const cleanHtml = DOMPurify.sanitize(rawHtml)
+    return { __html: cleanHtml }
+  }
+
   return (
-    <div className="h-[calc(100vh-2rem)] md:h-[calc(100vh-4rem)] flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="h-[calc(100vh-2rem)] md:h-[calc(100vh-4rem)] flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden relative">
       <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-white">
-        <div className="flex items-center gap-3">
-          <div className="p-2 sm:p-3 bg-primary-50 rounded-xl">
-            <Bot className="w-5 h-5 sm:w-6 sm:h-6 text-primary-600" />
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-3">
+            <div className="p-2 sm:p-3 bg-primary-50 rounded-xl">
+              <Bot className="w-5 h-5 sm:w-6 sm:h-6 text-primary-600" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Chatbot</h1>
+              <p className="text-sm sm:text-base text-gray-600">
+                Ask regulatory and compliance questions with source-backed answers
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Chatbot</h1>
-            <p className="text-sm sm:text-base text-gray-600">
-              Ask regulatory and compliance questions with source-backed answers
-            </p>
-          </div>
+          {(submittedQuestion || hasAnswer || isStreaming || displayError) && (
+            <button
+              onClick={() => setShowConfirmClear(true)}
+              className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              Clear Chat
+            </button>
+          )}
         </div>
       </div>
 
@@ -230,11 +272,11 @@ export default function RagChat() {
                                 Sources
                               </h3>
                               {!isStreaming && (
-                                <>
+                                <div className="flex items-center gap-3">
                                   <button
                                     type="button"
                                     onClick={handleExport}
-                                    className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-700"
+                                    className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-700 cursor-pointer"
                                   >
                                     <FileText className="w-3.5 h-3.5" />
                                     Export
@@ -243,25 +285,37 @@ export default function RagChat() {
                                   <button
                                     type="button"
                                     onClick={handleCopy}
-                                    className="inline-flex items-center gap-1.5 text-xs"
+                                    className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-700 cursor-pointer"
                                   >
-                                    Copy
+                                    Copy Answer
                                   </button>
-                                </>
+                                </div>
                               )}
                             </div>
                             <div className="space-y-3">
                               {citations.map((citation, index) => (
                                 <div
                                   key={index}
-                                  className="border border-gray-200 rounded-lg p-3 bg-gray-50"
+                                  className="border border-gray-200 rounded-lg p-3 bg-gray-50 flex flex-col space-y-2"
                                 >
-                                  <p className="font-medium text-sm text-gray-900">
-                                    {citation.source}
-                                  </p>
-                                  <p className="text-sm text-gray-600 mt-1">
-                                    {citation.excerpt}
-                                  </p>
+                                  <div className="flex items-center justify-between border-b border-gray-200/60 pb-1.5">
+                                    <p className="font-semibold text-sm text-gray-900">
+                                      {citation.source}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyCitation(citation.excerpt)}
+                                      className="inline-flex items-center gap-1 text-[11px] text-primary-600 hover:text-primary-700 cursor-pointer"
+                                      title="Copy citation snippet"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                      Copy
+                                    </button>
+                                  </div>
+                                  <div 
+                                    className="text-sm text-gray-600 prose prose-sm max-w-none leading-relaxed"
+                                    dangerouslySetInnerHTML={renderMarkdown(citation.excerpt)}
+                                  />
                                 </div>
                               ))}
                             </div>
@@ -325,6 +379,34 @@ export default function RagChat() {
           </div>
         </form>
       </div>
+
+      {/* Clear Chat Confirmation Modal */}
+      {showConfirmClear && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-gray-900">Clear chat history?</h3>
+            <p className="text-sm text-gray-500 mt-2">
+              Are you sure you want to clear your current chat history? This action cannot be undone.
+            </p>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowConfirmClear(false)}
+                className="px-4 py-2 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClearChat}
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
