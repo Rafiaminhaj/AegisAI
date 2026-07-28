@@ -81,10 +81,17 @@ class GuardTestResponse(BaseModel):
     result: dict
 
 
+class CustomRegexRule(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    pattern: str = Field(..., min_length=1, max_length=200)
+    severity: Literal["low", "medium", "high"] = "medium"
+
+
 class GuardConfigRequest(BaseModel):
     sanitization_level: str
     malicious_threshold: float
     suspicious_threshold: float
+    custom_regex_rules: list[CustomRegexRule] = []
 
 
 class BulkScanRequest(BaseModel):
@@ -294,7 +301,13 @@ def scan_prompt(
             SanitizationLevel.MEDIUM,
         )
 
-        guard = LLMGuard(sanitization_level=san_level)
+        user_config = user_guard_configs.get(current_user.id, {})
+        custom_rules = user_config.get("custom_regex_rules", [])
+
+        guard = LLMGuard(
+            sanitization_level=san_level,
+            custom_rules=custom_rules,
+        )
         result = guard.guard(request.prompt)
 
         client_ip = http_request.client.host if http_request.client else None
@@ -892,6 +905,7 @@ def get_guard_config(current_user: User = Depends(get_current_user)):
         "sanitization_level": "medium",
         "malicious_threshold": 0.8,
         "suspicious_threshold": 0.5,
+        "custom_regex_rules": [],
     }
 
     return user_guard_configs.get(current_user.id, default_config)
@@ -925,6 +939,7 @@ def update_guard_config(
         "sanitization_level": config.sanitization_level,
         "malicious_threshold": config.malicious_threshold,
         "suspicious_threshold": config.suspicious_threshold,
+        "custom_regex_rules": [r.dict() for r in config.custom_regex_rules],
     }
 
     return {
@@ -987,7 +1002,13 @@ def bulk_scan_prompts(
             SanitizationLevel.MEDIUM,
         )
 
-        guard = LLMGuard(sanitization_level=san_level)
+        user_config = user_guard_configs.get(current_user.id, {})
+        custom_rules = user_config.get("custom_regex_rules", [])
+
+        guard = LLMGuard(
+            sanitization_level=san_level,
+            custom_rules=custom_rules,
+        )
         results: list[ScanResponse] = []
 
         for prompt in request.prompts:

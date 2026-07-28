@@ -72,9 +72,23 @@ class RegexFilter:
         r"\b(backdoor|trojan|malware)\b",
     ]
 
-    def __init__(self):
+    def __init__(self, custom_rules: List[dict] = None):
         """Initialize compiled regex patterns with flags."""
         self.patterns = self._compile_patterns()
+        self.custom_patterns = []
+        if custom_rules:
+            for rule in custom_rules:
+                try:
+                    name = rule.get("name")
+                    pattern_str = rule.get("pattern")
+                    severity = rule.get("severity", "medium")
+                    self.custom_patterns.append({
+                        "name": name,
+                        "pattern": re.compile(pattern_str, re.IGNORECASE),
+                        "severity": severity,
+                    })
+                except Exception:
+                    pass
 
     def _compile_patterns(self) -> Dict[str, List[re.Pattern]]:
         """Compile all regex patterns with appropriate flags."""
@@ -154,6 +168,14 @@ class RegexFilter:
                 match = pattern.search(prompt).group(0)
                 matched_patterns.append(f"suspicious_keyword: {match}")
                 severity_scores.append(0.3)
+
+        # Check custom rules
+        for rule in self.custom_patterns:
+            if rule["pattern"].search(prompt):
+                match = rule["pattern"].search(prompt).group(0)
+                matched_patterns.append(f"custom_{rule['severity']}_{rule['name']}: {match}")
+                score_map = {"low": 0.3, "medium": 0.7, "high": 1.0}
+                severity_scores.append(score_map.get(rule["severity"], 0.7))
 
         # Calculate overall risk score (max of all severities)
         risk_score = max(severity_scores) if severity_scores else 0.0

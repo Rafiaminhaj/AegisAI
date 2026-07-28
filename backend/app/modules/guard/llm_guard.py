@@ -31,6 +31,7 @@ class LLMGuard:
         self,
         classifier_model_path: Optional[str] = None,
         sanitization_level: SanitizationLevel = SanitizationLevel.MEDIUM,
+        custom_rules: Optional[list] = None,
     ):
         """
         Initialize the guard with all defense layers.
@@ -42,11 +43,12 @@ class LLMGuard:
             classifier_model_path: Path to fine-tuned classifier model.
                                   If None, auto-detects using config.get_trained_model_path()
             sanitization_level: How aggressively to sanitize prompts
+            custom_rules: User-defined custom regex rules list
         """
         logger.info("Initializing LLM Guard...")
 
         # Layer 1: Fast regex filter
-        self.regex_filter = RegexFilter()
+        self.regex_filter = RegexFilter(custom_rules=custom_rules)
         logger.info("✓ Regex filter initialized")
 
         # Layer 2: Intent classifier (loads trained model or deterministic fallback)
