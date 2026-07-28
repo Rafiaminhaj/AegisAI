@@ -16,6 +16,7 @@ import {
   X,
   Sliders,
   Filter,
+  Download,
 } from 'lucide-react'
 import CopyButton from '../components/CopyButton'
 import GuardExplanation from '../components/GuardExplanation'
@@ -224,6 +225,30 @@ export default function GuardConsole() {
       setExplanationError(message)
     } finally {
       setIsExplaining(false)
+    }
+  }
+
+  const handleExport = async (format: 'csv' | 'json' | 'html' | 'markdown') => {
+    try {
+      toast.loading(`Preparing ${format.toUpperCase()} export...`, { id: 'export' })
+      const res = await guardHistoryApi.export({
+        format,
+        decision: logDecisionFilter || undefined,
+        intent: logIntentFilter || undefined,
+      })
+
+      const blob = new Blob([res.data], { type: res.contentType })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `guard_scan_logs.${format === 'markdown' ? 'md' : format}`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      toast.success(`${format.toUpperCase()} report downloaded!`, { id: 'export' })
+    } catch (err: unknown) {
+      toast.error('Failed to download export file.', { id: 'export' })
     }
   }
 
@@ -610,7 +635,7 @@ export default function GuardConsole() {
               <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Filter logs:</span>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3 items-center">
               <select
                 value={logDecisionFilter}
                 onChange={(e) => setLogDecisionFilter(e.target.value)}
@@ -632,6 +657,46 @@ export default function GuardConsole() {
                 <option value="suspicious">Suspicious</option>
                 <option value="malicious">Malicious</option>
               </select>
+
+              <div className="relative group">
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-transparent px-3 py-1.5 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors dark:text-white"
+                >
+                  <Download className="w-4 h-4" />
+                  Export Logs
+                </button>
+                <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-10 hidden group-hover:block hover:block">
+                  <button
+                    type="button"
+                    onClick={() => handleExport('csv')}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    Export as CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExport('json')}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    Export as JSON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExport('html')}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    Export as HTML Report
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExport('markdown')}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    Export as Markdown
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 

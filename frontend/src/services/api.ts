@@ -564,6 +564,21 @@ export const guardHistoryApi = {
 
     return data
   },
+  export: async (params?: {
+    format: 'csv' | 'json' | 'html' | 'markdown'
+    decision?: string
+    intent?: string
+  }): Promise<{ data: Blob; contentType: string }> => {
+    const response = await api.get('/guard/logs/export', {
+      params,
+      responseType: 'blob',
+    })
+    const cType = response.headers['content-type']
+    return {
+      data: response.data as Blob,
+      contentType: typeof cType === 'string' ? cType : 'text/csv',
+    }
+  },
 }
 
 export default api
