@@ -510,6 +510,19 @@ export interface GuardHistoryResponse {
   next_cursor: string | null
 }
 
+export interface CustomRegexRule {
+  name: string
+  pattern: string
+  severity: 'low' | 'medium' | 'high'
+}
+
+export interface UserGuardConfig {
+  sanitization_level: string
+  malicious_threshold: number
+  suspicious_threshold: number
+  custom_regex_rules: CustomRegexRule[]
+}
+
 export const guardApi = {
   scan: async (prompt: string): Promise<GuardScanResponse> => {
     const { data } = await api.post('/guard/scan', { prompt })
@@ -533,6 +546,14 @@ export const guardApi = {
     })
     return data
   },
+  getConfig: async (): Promise<UserGuardConfig> => {
+    const { data } = await api.get<UserGuardConfig>('/guard/config')
+    return data
+  },
+  updateConfig: async (config: UserGuardConfig): Promise<UserGuardConfig> => {
+    const { data } = await api.patch<{ config: UserGuardConfig }>('/guard/config', config)
+    return data.config
+  },
 }
 
 export const analyticsApi = {
@@ -555,6 +576,21 @@ export const guardHistoryApi = {
     )
 
     return data
+  },
+  export: async (params?: {
+    format: 'csv' | 'json' | 'html' | 'markdown'
+    decision?: string
+    intent?: string
+  }): Promise<{ data: Blob; contentType: string }> => {
+    const response = await api.get('/guard/logs/export', {
+      params,
+      responseType: 'blob',
+    })
+    const cType = response.headers['content-type']
+    return {
+      data: response.data as Blob,
+      contentType: typeof cType === 'string' ? cType : 'text/csv',
+    }
   },
 }
 

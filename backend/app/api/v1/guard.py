@@ -81,10 +81,17 @@ class GuardTestResponse(BaseModel):
     result: dict
 
 
+class CustomRegexRule(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    pattern: str = Field(..., min_length=1, max_length=200)
+    severity: Literal["low", "medium", "high"] = "medium"
+
+
 class GuardConfigRequest(BaseModel):
     sanitization_level: str
     malicious_threshold: float
     suspicious_threshold: float
+    custom_regex_rules: list[CustomRegexRule] = []
 
 
 class BulkScanRequest(BaseModel):
@@ -294,7 +301,13 @@ def scan_prompt(
             SanitizationLevel.MEDIUM,
         )
 
-        guard = LLMGuard(sanitization_level=san_level)
+        user_config = user_guard_configs.get(current_user.id, {})
+        custom_rules = user_config.get("custom_regex_rules", [])
+
+        guard = LLMGuard(
+            sanitization_level=san_level,
+            custom_rules=custom_rules,
+        )
         result = guard.guard(request.prompt)
 
         client_ip = http_request.client.host if http_request.client else None
@@ -645,7 +658,7 @@ def get_guard_history(
 
 @router.get("/logs/export")
 def export_guard_scan_logs(
-    format: str = Query("csv", pattern="^(csv|json)$", description="Export format"),
+    format: str = Query("csv", pattern="^(csv|json|html|markdown)$", description="Export format"),
     decision: Optional[str] = Query(None, pattern="^(allow|sanitize|block)$"),
     intent: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
@@ -732,9 +745,90 @@ def export_guard_scan_logs(
                 "ip_address": log.ip_address,
             }, default=str).encode()
         yield b']}'
-    media_type = "text/csv" if format == "csv" else "application/json"
-    filename = f"guard_scan_logs.{format}"
-    rows_fn = csv_rows if format == "csv" else json_rows
+
+    def html_rows():
+        yield b"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>LLM Guard Audit Logs</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 p-8 font-sans">
+    <div class="max-w-7xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+        <div class="flex justify-between items-center border-b border-slate-200 pb-4 mb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-900">LLM Guard Audit Logs Report</h1>
+                <p class="text-slate-500 text-sm">Exported on """ + datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC").encode() + b"""</p>
+            </div>
+            <div class="bg-indigo-50 text-indigo-700 font-bold px-4 py-2 rounded-xl border border-indigo-200">
+                AegisAI Guard
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
+                <thead>
+                    <tr class="bg-slate-100 border-b border-slate-200 text-slate-600">
+                        <th class="p-3 font-semibold">ID</th>
+                        <th class="p-3 font-semibold">Timestamp</th>
+                        <th class="p-3 font-semibold">Decision</th>
+                        <th class="p-3 font-semibold">Confidence</th>
+                        <th class="p-3 font-semibold">Intent</th>
+                        <th class="p-3 font-semibold">Detection Type</th>
+                        <th class="p-3 font-semibold">Matched Rules</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+"""
+        for log in query.yield_per(500):
+            decision_style = "bg-emerald-100 text-emerald-700 border-emerald-200"
+            if log.decision == "block":
+                decision_style = "bg-red-100 text-red-700 border-red-200"
+            elif log.decision == "sanitize":
+                decision_style = "bg-amber-100 text-amber-700 border-amber-200"
+
+            patterns = ", ".join(log.matched_patterns) if log.matched_patterns else "None"
+            row_html = f"""                    <tr class="hover:bg-slate-50/50 transition-colors">
+                        <td class="p-3 font-semibold text-slate-900">#{log.id}</td>
+                        <td class="p-3 text-slate-500">{log.scanned_at.isoformat() if log.scanned_at else ""}</td>
+                        <td class="p-3">
+                            <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide {decision_style}">{log.decision}</span>
+                        </td>
+                        <td class="p-3 font-medium text-slate-900">{round(log.confidence * 100, 1)}%</td>
+                        <td class="p-3 text-slate-600 font-medium">{log.intent}</td>
+                        <td class="p-3 text-slate-600">{log.detection_type}</td>
+                        <td class="p-3 text-slate-500 max-w-xs truncate" title="{patterns}">{patterns}</td>
+                    </tr>
+"""
+            yield row_html.encode()
+        yield b"""                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+    def markdown_rows():
+        yield f"# LLM Guard Audit Logs Report\n".encode()
+        yield f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n".encode()
+        yield b"| ID | Scanned At | Decision | Confidence | Intent | Detection Type | Matched Rules |\n"
+        yield b"|---|---|---|---|---|---|---|\n"
+        for log in query.yield_per(500):
+            patterns = ", ".join(log.matched_patterns) if log.matched_patterns else "None"
+            row_md = f"| #{log.id} | {log.scanned_at.isoformat() if log.scanned_at else ''} | **{log.decision.upper()}** | {round(log.confidence * 100, 1)}% | {log.intent} | {log.detection_type} | {patterns} |\n"
+            yield row_md.encode()
+
+    media_map = {
+        "csv": ("text/csv", "guard_scan_logs.csv", csv_rows),
+        "json": ("application/json", "guard_scan_logs.json", json_rows),
+        "html": ("text/html", "guard_scan_logs.html", html_rows),
+        "markdown": ("text/markdown", "guard_scan_logs.md", markdown_rows),
+    }
+
+    media_type, filename, rows_fn = media_map.get(
+        format, ("text/csv", "guard_scan_logs.csv", csv_rows)
+    )
 
     return StreamingResponse(
         rows_fn(),
@@ -892,6 +986,7 @@ def get_guard_config(current_user: User = Depends(get_current_user)):
         "sanitization_level": "medium",
         "malicious_threshold": 0.8,
         "suspicious_threshold": 0.5,
+        "custom_regex_rules": [],
     }
 
     return user_guard_configs.get(current_user.id, default_config)
@@ -925,6 +1020,7 @@ def update_guard_config(
         "sanitization_level": config.sanitization_level,
         "malicious_threshold": config.malicious_threshold,
         "suspicious_threshold": config.suspicious_threshold,
+        "custom_regex_rules": [r.dict() for r in config.custom_regex_rules],
     }
 
     return {
@@ -987,7 +1083,13 @@ def bulk_scan_prompts(
             SanitizationLevel.MEDIUM,
         )
 
-        guard = LLMGuard(sanitization_level=san_level)
+        user_config = user_guard_configs.get(current_user.id, {})
+        custom_rules = user_config.get("custom_regex_rules", [])
+
+        guard = LLMGuard(
+            sanitization_level=san_level,
+            custom_rules=custom_rules,
+        )
         results: list[ScanResponse] = []
 
         for prompt in request.prompts:
