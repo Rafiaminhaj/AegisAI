@@ -594,4 +594,20 @@ export const guardHistoryApi = {
   },
 }
 
+export interface AppNotification {
+  id: number
+  notification_type: string
+  title: string
+  message: string
+  is_read: boolean
+  created_at: string
+}
+
+export interface PaginatedNotifications {
+  items: AppNotification[]
+  total: number
+  skip: number
+  limit: number
+}
+
 export default api
